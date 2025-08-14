@@ -1,0 +1,49 @@
+name: Deploy
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      SSH_HOST: ${{ secrets.SSH_HOST }}
+      SSH_USER: ${{ secrets.SSH_USER }}
+      SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+      DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+      SERVICE_NAME: ${{ secrets.SERVICE_NAME }}
+      USE_DOCKER: ${{ secrets.USE_DOCKER }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare SSH key
+        shell: bash
+        run: |
+          install -m 700 -d ~/.ssh
+          printf "%s" "${SSH_PRIVATE_KEY}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "${SSH_HOST}" >> ~/.ssh/known_hosts
+
+      - name: Ensure remote directory exists
+        shell: bash
+        run: |
+          ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=yes "${SSH_USER}@${SSH_HOST}" "mkdir -p '${DEPLOY_PATH}'"
+
+      - name: Sync repository to server
+        shell: bash
+        run: |
+          rsync -az --delete -e "ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=yes" \
+            --exclude ".git" --exclude ".github" \
+            ./ "${SSH_USER}@${SSH_HOST}:${DEPLOY_PATH}/"
+
+      - name: Run remote deploy script
+        shell: bash
+        run: |
+          ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=yes "${SSH_USER}@${SSH_HOST}" "export DEPLOY_PATH='${DEPLOY_PATH}'; export SERVICE_NAME='${SERVICE_NAME}'; export USE_DOCKER='${USE_DOCKER}'; bash -s" < scripts/deploy.sh
