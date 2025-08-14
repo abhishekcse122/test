@@ -321,126 +321,106 @@ def generate_wlst_script(
     java_home: Path,
 ) -> str:
     mode = "prod" if production_mode else "dev"
-    # WLST offline script (Jython 2.x compatible)
-    return dedent(
-        """
-        import os
-        oracle_home = r"{oracle_home}"
-        domain_home = r"{domain_home}"
-        domain_name = r"{domain_name}"
-        admin_user = r"{admin_user}"
-        admin_password = r"{admin_password}"
-        listen_address = r"{listen_address}"
-        listen_port = int({listen_port})
-        admin_ssl_port = int({admin_ssl_port})
-        
-        managed_server_name = r"{managed_server_name}"
-        managed_listen_address = r"{managed_listen_address}"
-        managed_listen_port = int({managed_listen_port})
-        managed_ssl_port = int({managed_ssl_port})
-        
-        node_manager_name = r"{node_manager_name}"
-        node_manager_listen_address = r"{node_manager_listen_address}"
-        node_manager_listen_port = int({node_manager_listen_port})
-        node_manager_type = r"{node_manager_type}"
-        
-        java_home = r"{java_home}"
-        
-        template_path = os.path.join(oracle_home, 'wlserver', 'common', 'templates', 'wls', 'wls.jar')
-        readTemplate(template_path)
-        
-        # Configure admin user
-        cd('Security/base_domain/User/weblogic')
-        cmo.setName(admin_user)
-        cmo.setUserPassword(admin_password)
-        
-        # Configure AdminServer
-        cd('/')
-        cd('Servers/AdminServer')
-        set('ListenAddress', listen_address)
-        set('ListenPort', listen_port)
-        try:
-            create('AdminServer','SSL')
-        except:
-            pass
-        cd('SSL/AdminServer')
-        cmo.setEnabled(True)
-        set('ListenPort', admin_ssl_port)
-        cd('/')
-        
-        # Create Node Manager and Machine
-        create(node_manager_name, 'Machine')
-        cd('Machines/' + node_manager_name)
-        create(node_manager_name, 'NodeManager')
-        cd('NodeManager/' + node_manager_name)
-        set('ListenAddress', node_manager_listen_address)
-        set('ListenPort', node_manager_listen_port)
-        set('NMType', node_manager_type)
-        cd('/')
-        
-        # Create Managed Server
-        create(managed_server_name, 'Server')
-        cd('Servers/' + managed_server_name)
-        set('ListenAddress', managed_listen_address)
-        set('ListenPort', managed_listen_port)
-        try:
-            create(managed_server_name, 'SSL')
-        except:
-            pass
-        cd('SSL/' + managed_server_name)
-        cmo.setEnabled(True)
-        set('ListenPort', managed_ssl_port)
-        cd('/Servers/' + managed_server_name)
-        try:
-            mbean = getMBean('/Machines/' + node_manager_name)
-            if mbean is not None:
-                cmo.setMachine(mbean)
-        except:
-            pass
-        cd('/')
-        
-        # Domain options and write
-        setOption('DomainName', domain_name)
-        setOption('OverwriteDomain', 'true')
-        setOption('ServerStartMode', '{mode}')
-        setOption('JavaHome', java_home)
-        
-        writeDomain(domain_home)
-        closeTemplate()
-        
-        # Create boot.properties for AdminServer
-        security_dir = os.path.join(domain_home, 'servers', 'AdminServer', 'security')
-        if not os.path.isdir(security_dir):
-            os.makedirs(security_dir)
-        f = open(os.path.join(security_dir, 'boot.properties'), 'w')
-        try:
-            f.write('username=' + admin_user + '\n')
-            f.write('password=' + admin_password + '\n')
-        finally:
-            f.close()
-        
-        exit()
-        """.format(
-            oracle_home=oracle_home,
-            domain_home=domain_home,
-            domain_name=domain_name,
-            admin_user=admin_user,
-            admin_password=admin_password,
-            listen_address=listen_address,
-            listen_port=listen_port,
-            admin_ssl_port=admin_ssl_port,
-            managed_server_name=managed_server_name,
-            managed_listen_address=managed_listen_address,
-            managed_listen_port=managed_listen_port,
-            managed_ssl_port=managed_ssl_port,
-            node_manager_name=node_manager_name,
-            node_manager_listen_address=node_manager_listen_address,
-            node_manager_listen_port=node_manager_listen_port,
-            node_manager_type=node_manager_type,
-            java_home=java_home,
-            mode=mode,
-        )
-    ).strip() + "\n"
+    script = (
+        "import os\n"
+        "oracle_home = r\"{oracle_home}\"\n"
+        "domain_home = r\"{domain_home}\"\n"
+        "domain_name = r\"{domain_name}\"\n"
+        "admin_user = r\"{admin_user}\"\n"
+        "admin_password = r\"{admin_password}\"\n"
+        "listen_address = r\"{listen_address}\"\n"
+        "listen_port = int({listen_port})\n"
+        "admin_ssl_port = int({admin_ssl_port})\n"
+        "managed_server_name = r\"{managed_server_name}\"\n"
+        "managed_listen_address = r\"{managed_listen_address}\"\n"
+        "managed_listen_port = int({managed_listen_port})\n"
+        "managed_ssl_port = int({managed_ssl_port})\n"
+        "node_manager_name = r\"{node_manager_name}\"\n"
+        "node_manager_listen_address = r\"{node_manager_listen_address}\"\n"
+        "node_manager_listen_port = int({node_manager_listen_port})\n"
+        "node_manager_type = r\"{node_manager_type}\"\n"
+        "java_home = r\"{java_home}\"\n"
+        "template_path = os.path.join(oracle_home, 'wlserver', 'common', 'templates', 'wls', 'wls.jar')\n"
+        "readTemplate(template_path)\n"
+        "cd('Security/base_domain/User/weblogic')\n"
+        "cmo.setName(admin_user)\n"
+        "cmo.setUserPassword(admin_password)\n"
+        "cd('/')\n"
+        "cd('Servers/AdminServer')\n"
+        "set('ListenAddress', listen_address)\n"
+        "set('ListenPort', listen_port)\n"
+        "try:\n"
+        "    create('AdminServer','SSL')\n"
+        "except:\n"
+        "    pass\n"
+        "cd('SSL/AdminServer')\n"
+        "cmo.setEnabled(True)\n"
+        "set('ListenPort', admin_ssl_port)\n"
+        "cd('/')\n"
+        "create(node_manager_name, 'Machine')\n"
+        "cd('Machines/' + node_manager_name)\n"
+        "create(node_manager_name, 'NodeManager')\n"
+        "cd('NodeManager/' + node_manager_name)\n"
+        "set('ListenAddress', node_manager_listen_address)\n"
+        "set('ListenPort', node_manager_listen_port)\n"
+        "set('NMType', node_manager_type)\n"
+        "cd('/')\n"
+        "create(managed_server_name, 'Server')\n"
+        "cd('Servers/' + managed_server_name)\n"
+        "set('ListenAddress', managed_listen_address)\n"
+        "set('ListenPort', managed_listen_port)\n"
+        "try:\n"
+        "    create(managed_server_name, 'SSL')\n"
+        "except:\n"
+        "    pass\n"
+        "cd('SSL/' + managed_server_name)\n"
+        "cmo.setEnabled(True)\n"
+        "set('ListenPort', managed_ssl_port)\n"
+        "cd('/Servers/' + managed_server_name)\n"
+        "try:\n"
+        "    mbean = getMBean('/Machines/' + node_manager_name)\n"
+        "    if mbean is not None:\n"
+        "        cmo.setMachine(mbean)\n"
+        "except:\n"
+        "    pass\n"
+        "cd('/')\n"
+        "setOption('DomainName', domain_name)\n"
+        "setOption('OverwriteDomain', 'true')\n"
+        "setOption('ServerStartMode', '{mode}')\n"
+        "setOption('JavaHome', java_home)\n"
+        "writeDomain(domain_home)\n"
+        "closeTemplate()\n"
+        "security_dir = os.path.join(domain_home, 'servers', 'AdminServer', 'security')\n"
+        "if not os.path.isdir(security_dir):\n"
+        "    os.makedirs(security_dir)\n"
+        "f = open(os.path.join(security_dir, 'boot.properties'), 'w')\n"
+        "try:\n"
+        "    f.write('username=' + admin_user + '\\n')\n"
+        "    f.write('password=' + admin_password + '\\n')\n"
+        "finally:\n"
+        "    f.close()\n"
+        "exit()\n"
+    ).format(
+        oracle_home=oracle_home,
+        domain_home=domain_home,
+        domain_name=domain_name,
+        admin_user=admin_user,
+        admin_password=admin_password,
+        listen_address=listen_address,
+        listen_port=listen_port,
+        admin_ssl_port=admin_ssl_port,
+        managed_server_name=managed_server_name,
+        managed_listen_address=managed_listen_address,
+        managed_listen_port=managed_listen_port,
+        managed_ssl_port=managed_ssl_port,
+        node_manager_name=node_manager_name,
+        node_manager_listen_address=node_manager_listen_address,
+        node_manager_listen_port=node_manager_listen_port,
+        node_manager_type=node_manager_type,
+        java_home=java_home,
+        mode=mode,
+    )
+    return script + "\n"
 
 
 def create_domain_via_wlst(
