@@ -101,7 +101,19 @@ def find_java_home() -> str:
     return java_home
 
 
-def ensure_java(jdk_version: int, prefer_system: bool) -> str:
+def ensure_java(jdk_version: int, prefer_system: bool, preferred_java_home: str | None) -> str:
+    # If caller provided a fixed JAVA_HOME, honor it first
+    if preferred_java_home:
+        candidate = Path(preferred_java_home)
+        if Path(candidate, "bin", "java").exists():
+            os.environ["JAVA_HOME"] = str(candidate)
+            print(f"Using provided JAVA_HOME={candidate}")
+            return str(candidate)
+        else:
+            raise RuntimeError(
+                f"Provided --java-home path does not contain bin/java: {candidate}. Install JDK there or omit --java-home."
+            )
+
     existing_java_home = os.environ.get("JAVA_HOME", "").strip()
     if existing_java_home and Path(existing_java_home, "bin", "java").exists():
         print(f"Using existing JAVA_HOME={existing_java_home}")
@@ -231,7 +243,17 @@ def generate_wlst_script(
     admin_password: str,
     listen_address: str,
     listen_port: int,
+    admin_ssl_port: int,
+    managed_server_name: str,
+    managed_listen_address: str,
+    managed_listen_port: int,
+    managed_ssl_port: int,
+    node_manager_name: str,
+    node_manager_listen_address: str,
+    node_manager_listen_port: int,
+    node_manager_type: str,
     production_mode: bool,
+    java_home: Path,
 ) -> str:
     mode = "prod" if production_mode else "dev"
     # WLST offline script
@@ -245,28 +267,83 @@ def generate_wlst_script(
         admin_password = r"{admin_password}"
         listen_address = r"{listen_address}"
         listen_port = int({listen_port})
+        admin_ssl_port = int({admin_ssl_port})
+        
+        managed_server_name = r"{managed_server_name}"
+        managed_listen_address = r"{managed_listen_address}"
+        managed_listen_port = int({managed_listen_port})
+        managed_ssl_port = int({managed_ssl_port})
+        
+        node_manager_name = r"{node_manager_name}"
+        node_manager_listen_address = r"{node_manager_listen_address}"
+        node_manager_listen_port = int({node_manager_listen_port})
+        node_manager_type = r"{node_manager_type}"
+        
+        java_home = r"{java_home}"
         
         template_path = os.path.join(oracle_home, 'wlserver', 'common', 'templates', 'wls', 'wls.jar')
         readTemplate(template_path)
         
+        # Configure admin user
         cd('Security/base_domain/User/weblogic')
         cmo.setName(admin_user)
         cmo.setUserPassword(admin_password)
         
+        # Configure AdminServer
         cd('/')
         cd('Servers/AdminServer')
         set('ListenAddress', listen_address)
         set('ListenPort', listen_port)
+        try:
+            create('AdminServer','SSL')
+        except:
+            pass
+        cd('SSL/AdminServer')
+        cmo.setEnabled(True)
+        set('ListenPort', admin_ssl_port)
+        cd('/')
         
+        # Create Node Manager and Machine
+        create(node_manager_name, 'Machine')
+        cd(f'Machines/{{node_manager_name}}')
+        create(node_manager_name, 'NodeManager')
+        cd(f'NodeManager/{{node_manager_name}}')
+        set('ListenAddress', node_manager_listen_address)
+        set('ListenPort', node_manager_listen_port)
+        set('NMType', node_manager_type)
+        cd('/')
+        
+        # Create Managed Server
+        create(managed_server_name, 'Server')
+        cd(f'Servers/{{managed_server_name}}')
+        set('ListenAddress', managed_listen_address)
+        set('ListenPort', managed_listen_port)
+        try:
+            create(managed_server_name, 'SSL')
+        except:
+            pass
+        cd(f'SSL/{{managed_server_name}}')
+        cmo.setEnabled(True)
+        set('ListenPort', managed_ssl_port)
+        cd(f'/Servers/{{managed_server_name}}')
+        try:
+            mbean = getMBean(f'/Machines/{{node_manager_name}}')
+            if mbean is not None:
+                cmo.setMachine(mbean)
+        except:
+            pass
+        cd('/')
+        
+        # Domain options and write
         setOption('DomainName', domain_name)
         setOption('OverwriteDomain', 'true')
         setOption('ServerStartMode', '{mode}')
+        setOption('JavaHome', java_home)
         
         writeDomain(domain_home)
         closeTemplate()
         
         # Create boot.properties for AdminServer
-        import os
         security_dir = os.path.join(domain_home, 'servers', 'AdminServer', 'security')
         if not os.path.isdir(security_dir):
             os.makedirs(security_dir)
@@ -288,8 +365,18 @@ def create_domain_via_wlst(
     admin_password: str,
     listen_address: str,
     listen_port: int,
+    admin_ssl_port: int,
+    managed_server_name: str,
+    managed_listen_address: str,
+    managed_listen_port: int,
+    managed_ssl_port: int,
+    node_manager_name: str,
+    node_manager_listen_address: str,
+    node_manager_listen_port: int,
+    node_manager_type: str,
     production_mode: bool,
     logs_dir: Path,
+    wl_home: Path,
 ) -> None:
     if (domain_home / "config" / "config.xml").exists():
         print(f"Domain already exists at {domain_home}")
@@ -303,7 +390,17 @@ def create_domain_via_wlst(
         admin_password=admin_password,
         listen_address=listen_address,
         listen_port=listen_port,
+        admin_ssl_port=admin_ssl_port,
+        managed_server_name=managed_server_name,
+        managed_listen_address=managed_listen_address,
+        managed_listen_port=managed_listen_port,
+        managed_ssl_port=managed_ssl_port,
+        node_manager_name=node_manager_name,
+        node_manager_listen_address=node_manager_listen_address,
+        node_manager_listen_port=node_manager_listen_port,
+        node_manager_type=node_manager_type,
         production_mode=production_mode,
+        java_home=java_home,
     )
 
     ensure_dir(logs_dir)
@@ -314,7 +411,13 @@ def create_domain_via_wlst(
     if not wlst_sh.exists():
         raise RuntimeError(f"wlst.sh not found at {wlst_sh}. Is WebLogic installed correctly?")
 
-    env = {**os.environ, "JAVA_HOME": str(java_home)}
+    env = {
+        **os.environ,
+        "JAVA_HOME": str(java_home),
+        "ORACLE_HOME": str(oracle_home),
+        "WL_HOME": str(wl_home),
+        "DOMAIN_HOME": str(domain_home),
+    }
     cmd = [str(wlst_sh), str(wlst_script_path)]
     print(f"Running WLST to create domain {domain_name} at {domain_home}")
     output = run_cmd(cmd, env=env)
@@ -331,20 +434,34 @@ def parse_args(argv=None):
         description="Install JDK (optional), install WebLogic silently from installer JAR, and create a domain via WLST."
     )
     parser.add_argument("--wls-installer", required=True, help="Path to WebLogic generic installer JAR (e.g., fmw_12.2.1.4.0_wls.jar)")
-    parser.add_argument("--oracle-home", default="/opt/oracle/middleware", help="Target ORACLE_HOME for WebLogic installation")
+    parser.add_argument("--oracle-home", default="/app/oracle/middleware/ORACLE_HOME", help="Target ORACLE_HOME for WebLogic installation")
     parser.add_argument("--inventory", default="/opt/oraInventory", help="Oracle inventory directory location")
     parser.add_argument("--install-type", default="WebLogic Server", help="INSTALL_TYPE for response file (e.g., 'WebLogic Server')")
 
+    parser.add_argument("--java-home", default="/app/oracle/java", help="Use an explicit JAVA_HOME (expects bin/java under this path)")
     parser.add_argument("--jdk-version", type=int, default=11, help="JDK major version to install/detect (8, 11, 17)")
     parser.add_argument("--install-jdk-from-system", action="store_true", help="Install OpenJDK from system package manager if JAVA_HOME is not set")
 
-    parser.add_argument("--domain-name", default="base_domain", help="Domain name")
-    parser.add_argument("--domain-home", default="/opt/oracle/user_projects/domains/base_domain", help="Domain home directory")
+    parser.add_argument("--domain-name", default="c2m_domain", help="Domain name")
+    parser.add_argument("--domain-home", default="/app/oracle/middleware/ORACLE_HOME/user_projects/domains/c2m_domain", help="Domain home directory")
+    parser.add_argument("--wl-home", default="/app/oracle/middleware/ORACLE_HOME/wlserver", help="WL_HOME directory (auto-derived from ORACLE_HOME if not set)")
+
     parser.add_argument("--admin-user", default="weblogic", help="Admin username")
-    parser.add_argument("--admin-password", required=True, help="Admin password")
+    parser.add_argument("--admin-password", default="Welcome123", help="Admin password")
     parser.add_argument("--admin-address", default="", help="Admin server listen address (default: empty for all interfaces)")
     parser.add_argument("--admin-port", type=int, default=7001, help="Admin server listen port")
+    parser.add_argument("--admin-ssl-port", type=int, default=7002, help="Admin server SSL listen port")
     parser.add_argument("--production-mode", action="store_true", help="Create domain in production mode (default: development)")
+
+    parser.add_argument("--managed-server-name", default="C2M_MS1", help="Managed server name")
+    parser.add_argument("--managed-address", default="", help="Managed server listen address")
+    parser.add_argument("--managed-port", type=int, default=7500, help="Managed server listen port")
+    parser.add_argument("--managed-ssl-port", type=int, default=7501, help="Managed server SSL listen port")
+
+    parser.add_argument("--nodemanager-name", default="C2M_N1", help="Node Manager name (creates a Machine and NM)")
+    parser.add_argument("--nodemanager-address", default="", help="Node Manager listen address")
+    parser.add_argument("--nodemanager-port", type=int, default=5556, help="Node Manager listen port")
+    parser.add_argument("--nodemanager-type", default="Plain", choices=["Plain", "SSL"], help="Node Manager type")
 
     parser.add_argument("--logs-dir", default="/var/log/weblogic-installer", help="Directory to store installer and WLST logs")
 
@@ -359,7 +476,11 @@ def main(argv=None) -> int:
         print(f"Installer JAR not found: {installer_jar}")
         return 1
 
-    java_home = ensure_java(jdk_version=args.jdk_version, prefer_system=args.install_jdk_from_system)
+    java_home = ensure_java(
+        jdk_version=args.jdk_version,
+        prefer_system=args.install_jdk_from_system,
+        preferred_java_home=args.java_home,
+    )
 
     desired_oracle_home = Path(args.oracle_home).expanduser()
     fallback_oracle_home = Path.home() / "Oracle" / "middleware"
@@ -382,8 +503,11 @@ def main(argv=None) -> int:
             logs_dir=logs_dir,
         )
 
+        # WL_HOME derives from argument or installed path
+        wl_home = Path(args.wl_home).expanduser() if args.wl_home else (oracle_home / "wlserver")
+
         domain_home = Path(args.domain_home).expanduser()
-        # If domain_home under default /opt, may not be writable; choose fallback
+        # If domain_home under default /opt or /app, may not be writable; choose fallback
         desired_domain_home = domain_home
         fallback_domain_home = Path.home() / "Oracle" / "user_projects" / "domains" / args.domain_name
         domain_home = resolve_writable_default(desired_domain_home, fallback_domain_home)
@@ -397,27 +521,37 @@ def main(argv=None) -> int:
             admin_password=args.admin_password,
             listen_address=args.admin_address,
             listen_port=args.admin_port,
+            admin_ssl_port=args.admin_ssl_port,
+            managed_server_name=args.managed_server_name,
+            managed_listen_address=args.managed_address,
+            managed_listen_port=args.managed_port,
+            managed_ssl_port=args.managed_ssl_port,
+            node_manager_name=args.nodemanager_name,
+            node_manager_listen_address=args.nodemanager_address,
+            node_manager_listen_port=args.nodemanager_port,
+            node_manager_type=args.nodemanager_type,
             production_mode=args.production_mode,
             logs_dir=logs_dir,
+            wl_home=wl_home,
         )
 
         print("")
         print("Installation summary:")
         print(f"  JAVA_HOME      : {java_home}")
         print(f"  ORACLE_HOME    : {oracle_home}")
+        print(f"  WL_HOME        : {wl_home}")
         print(f"  Inventory      : {inventory_dir}")
         print(f"  Domain name    : {args.domain_name}")
         print(f"  Domain home    : {domain_home}")
         print(f"  Admin user     : {args.admin_user}")
-        print(f"  Admin port     : {args.admin_port}")
+        print(f"  Admin port     : {args.admin_port} (SSL {args.admin_ssl_port})")
+        print(f"  Managed server : {args.managed_server_name} port {args.managed_port} (SSL {args.managed_ssl_port})")
+        print(f"  Node Manager   : {args.nodemanager_name}:{args.nodemanager_port} ({args.nodemanager_type})")
         print(f"  Logs dir       : {logs_dir}")
         print("")
         print("Next steps:")
-        start_script = oracle_home / "user_projects" / "domains" / args.domain_name / "startWebLogic.sh"
-        alt_start_script = domain_home / "startWebLogic.sh"
-        if alt_start_script.exists():
-            print(f"  To start AdminServer: {alt_start_script}")
-        elif start_script.exists():
+        start_script = domain_home / "startWebLogic.sh"
+        if start_script.exists():
             print(f"  To start AdminServer: {start_script}")
         else:
             print(f"  To start AdminServer: {domain_home}/startWebLogic.sh")
