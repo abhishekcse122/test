@@ -8,6 +8,7 @@ import tempfile
 from pathlib import Path
 from textwrap import dedent
 import grp
+import tarfile
 
 
 class CommandError(Exception):
@@ -101,17 +102,69 @@ def find_java_home() -> str:
     return java_home
 
 
-def ensure_java(jdk_version: int, prefer_system: bool, preferred_java_home: str | None) -> str:
-    # If caller provided a fixed JAVA_HOME, honor it first
+def extract_jdk_archive(archive_path: Path, destination_java_home: Path) -> str:
+    if not archive_path.exists():
+        raise RuntimeError(f"JDK archive not found: {archive_path}")
+    parent = destination_java_home.parent
+    parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="jdk_extract_") as tmpdir:
+        tmpdir_path = Path(tmpdir)
+        print(f"Extracting JDK from {archive_path} to {tmpdir_path}")
+        with tarfile.open(archive_path, mode="r:gz") as tf:
+            tf.extractall(path=tmpdir_path)
+        # Find the top-level directory
+        entries = [p for p in tmpdir_path.iterdir() if p.is_dir()]
+        if len(entries) == 1:
+            src_root = entries[0]
+        else:
+            src_root = tmpdir_path
+        # Prepare destination
+        if destination_java_home.exists():
+            # If valid JDK already there, keep it
+            if (destination_java_home / "bin" / "java").exists():
+                print(f"Existing JAVA_HOME seems valid at {destination_java_home}; skipping overwrite")
+                return str(destination_java_home)
+            print(f"Removing existing incomplete JAVA_HOME at {destination_java_home}")
+            shutil.rmtree(destination_java_home, ignore_errors=True)
+        # Move contents of src_root into destination_java_home, ensuring bin/java ends up directly under destination
+        destination_java_home.mkdir(parents=True, exist_ok=True)
+        for item in src_root.iterdir():
+            target = destination_java_home / item.name
+            if target.exists():
+                if target.is_dir():
+                    shutil.rmtree(target)
+                else:
+                    target.unlink()
+            shutil.move(str(item), str(target))
+    # Verify
+    java_bin = destination_java_home / "bin" / "java"
+    if not java_bin.exists():
+        raise RuntimeError(f"Extracted JDK missing java binary at {java_bin}")
+    return str(destination_java_home)
+
+
+def ensure_java(jdk_version: int, prefer_system: bool, preferred_java_home: str | None, jdk_archive_path: str | None) -> str:
+    # If caller provided a fixed JAVA_HOME, honor it first; extract archive there if needed
     if preferred_java_home:
         candidate = Path(preferred_java_home)
-        if Path(candidate, "bin", "java").exists():
+        java_bin = candidate / "bin" / "java"
+        if java_bin.exists():
             os.environ["JAVA_HOME"] = str(candidate)
             print(f"Using provided JAVA_HOME={candidate}")
             return str(candidate)
+        # Try to provision from archive if given
+        if jdk_archive_path:
+            try:
+                provisioned = extract_jdk_archive(Path(jdk_archive_path).expanduser(), candidate)
+                os.environ["JAVA_HOME"] = provisioned
+                print(f"Provisioned JDK to {provisioned}")
+                return provisioned
+            except Exception as e:
+                print(f"Failed to extract JDK archive to {candidate}: {e}")
+                # Fall through to other detection/installation
         else:
             raise RuntimeError(
-                f"Provided --java-home path does not contain bin/java: {candidate}. Install JDK there or omit --java-home."
+                f"Provided --java-home path does not contain bin/java: {candidate}. Supply --jdk-archive to provision or install JDK."
             )
 
     existing_java_home = os.environ.get("JAVA_HOME", "").strip()
@@ -125,6 +178,17 @@ def ensure_java(jdk_version: int, prefer_system: bool, preferred_java_home: str 
         os.environ["JAVA_HOME"] = java_home
         return java_home
 
+    # Try jdk archive if provided, default to /app/oracle/java
+    if jdk_archive_path:
+        destination = Path(preferred_java_home or "/app/oracle/java")
+        try:
+            provisioned = extract_jdk_archive(Path(jdk_archive_path).expanduser(), destination)
+            os.environ["JAVA_HOME"] = provisioned
+            print(f"Provisioned JDK to {provisioned}")
+            return provisioned
+        except Exception as e:
+            print(f"Failed to extract JDK archive: {e}")
+
     if prefer_system:
         print("No JAVA_HOME detected. Attempting to install OpenJDK via system package manager.")
         install_openjdk(jdk_version)
@@ -135,7 +199,7 @@ def ensure_java(jdk_version: int, prefer_system: bool, preferred_java_home: str 
             return java_home
 
     raise RuntimeError(
-        "JDK not found. Install JDK manually or re-run with --install-jdk-from-system to allow package installation."
+        "JDK not found. Provide --java-home or --jdk-archive, or re-run with --install-jdk-from-system to allow package installation."
     )
 
 
@@ -433,13 +497,14 @@ def parse_args(argv=None):
     parser = argparse.ArgumentParser(
         description="Install JDK (optional), install WebLogic silently from installer JAR, and create a domain via WLST."
     )
-    parser.add_argument("--wls-installer", required=True, help="Path to WebLogic generic installer JAR (e.g., fmw_12.2.1.4.0_wls.jar)")
+    parser.add_argument("--wls-installer", default="/app/software/FMW12212/fmw_12.2.1.4.0_wls.jar", help="Path to WebLogic generic installer JAR")
     parser.add_argument("--oracle-home", default="/app/oracle/middleware/ORACLE_HOME", help="Target ORACLE_HOME for WebLogic installation")
     parser.add_argument("--inventory", default="/opt/oraInventory", help="Oracle inventory directory location")
     parser.add_argument("--install-type", default="WebLogic Server", help="INSTALL_TYPE for response file (e.g., 'WebLogic Server')")
 
-    parser.add_argument("--java-home", default="/app/oracle/java", help="Use an explicit JAVA_HOME (expects bin/java under this path)")
-    parser.add_argument("--jdk-version", type=int, default=11, help="JDK major version to install/detect (8, 11, 17)")
+    parser.add_argument("--java-home", default="/app/oracle/java", help="Use an explicit JAVA_HOME (expects bin/java under this path; will be created if using --jdk-archive)")
+    parser.add_argument("--jdk-archive", default="/app/software/JAVA/JDK.tar.gz", help="Path to a JDK .tar.gz archive to provision JAVA_HOME from")
+    parser.add_argument("--jdk-version", type=int, default=11, help="JDK major version to install/detect (8, 11, 17) if not using --jdk-archive")
     parser.add_argument("--install-jdk-from-system", action="store_true", help="Install OpenJDK from system package manager if JAVA_HOME is not set")
 
     parser.add_argument("--domain-name", default="c2m_domain", help="Domain name")
@@ -480,6 +545,7 @@ def main(argv=None) -> int:
         jdk_version=args.jdk_version,
         prefer_system=args.install_jdk_from_system,
         preferred_java_home=args.java_home,
+        jdk_archive_path=args.jdk_archive,
     )
 
     desired_oracle_home = Path(args.oracle_home).expanduser()
