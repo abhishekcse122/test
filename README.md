@@ -28,3 +28,17 @@ sudo bash /workspace/install-c2m.sh /workspace/c2m.env
 - Admin user is fixed to `weblogic` for offline domain creation.
 - JDBC URL uses `jdbc:oracle:thin:@//<host>:<port>/<service>`; adjust in `c2m.env` if needed.
 - For production, secure passwords and rotate them after provisioning.
+
+## Covers the requested flow
+- JDK install
+- WebLogic install
+- RCU creation (optional)
+- Domain creation
+- OUAF/C2M installers (optional placeholders)
+- Create Managed Server
+- Create Machine/Node Manager and enroll
+- Enable SSL on Managed Server (custom keystore support)
+- Configure XML Registry (optional)
+- Tune JVM memory (Xms/Xmx)
+- Deploy SPLService and SPLWeb with deployment orders 100/200
+- Start the managed server (via Node Manager or startManagedWebLogic)
