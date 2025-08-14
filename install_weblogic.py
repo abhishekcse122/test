@@ -497,14 +497,14 @@ def parse_args(argv=None):
     parser = argparse.ArgumentParser(
         description="Install JDK (optional), install WebLogic silently from installer JAR, and create a domain via WLST."
     )
-    parser.add_argument("--wls-installer", default="/app/software/FMW12212/fmw_12.2.1.4.0_wls.jar", help="Path to WebLogic generic installer JAR")
+    parser.add_argument("--wls-installer", default="/app/software/FMW12214/fmw_12.2.1.4.0_infrastructure.jar", help="Path to WebLogic generic installer JAR")
     parser.add_argument("--oracle-home", default="/app/oracle/middleware/ORACLE_HOME", help="Target ORACLE_HOME for WebLogic installation")
     parser.add_argument("--inventory", default="/opt/oraInventory", help="Oracle inventory directory location")
-    parser.add_argument("--install-type", default="WebLogic Server", help="INSTALL_TYPE for response file (e.g., 'WebLogic Server')")
+    parser.add_argument("--install-type", default="Fusion Middleware Infrastructure", help="INSTALL_TYPE for response file (e.g., 'WebLogic Server' or 'Fusion Middleware Infrastructure')")
 
     parser.add_argument("--java-home", default="/app/oracle/java", help="Use an explicit JAVA_HOME (expects bin/java under this path; will be created if using --jdk-archive)")
-    parser.add_argument("--jdk-archive", default="/app/software/JAVA/JDK.tar.gz", help="Path to a JDK .tar.gz archive to provision JAVA_HOME from")
-    parser.add_argument("--jdk-version", type=int, default=11, help="JDK major version to install/detect (8, 11, 17) if not using --jdk-archive")
+    parser.add_argument("--jdk-archive", default="/app/software/java/jdk-8u451-linux-x64.tar.gz", help="Path to a JDK .tar.gz archive to provision JAVA_HOME from")
+    parser.add_argument("--jdk-version", type=int, default=8, help="JDK major version to install/detect (8, 11, 17) if not using --jdk-archive")
     parser.add_argument("--install-jdk-from-system", action="store_true", help="Install OpenJDK from system package manager if JAVA_HOME is not set")
 
     parser.add_argument("--domain-name", default="c2m_domain", help="Domain name")
@@ -514,8 +514,8 @@ def parse_args(argv=None):
     parser.add_argument("--admin-user", default="weblogic", help="Admin username")
     parser.add_argument("--admin-password", default="Welcome123", help="Admin password")
     parser.add_argument("--admin-address", default="", help="Admin server listen address (default: empty for all interfaces)")
-    parser.add_argument("--admin-port", type=int, default=7001, help="Admin server listen port")
-    parser.add_argument("--admin-ssl-port", type=int, default=7002, help="Admin server SSL listen port")
+    parser.add_argument("--admin-port", type=int, default=8001, help="Admin server listen port")
+    parser.add_argument("--admin-ssl-port", type=int, default=8002, help="Admin server SSL listen port")
     parser.add_argument("--production-mode", action="store_true", help="Create domain in production mode (default: development)")
 
     parser.add_argument("--managed-server-name", default="C2M_MS1", help="Managed server name")
