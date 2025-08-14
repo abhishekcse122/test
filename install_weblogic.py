@@ -24,7 +24,7 @@ def run_cmd(command, env=None, check=True, cwd=None):
         stderr=subprocess.STDOUT,
         env=env,
         cwd=cwd,
-        text=True,
+        universal_newlines=True,
     )
     if check and process.returncode != 0:
         print(process.stdout)
@@ -503,7 +503,7 @@ def parse_args(argv=None):
     parser.add_argument("--inventory", default="/opt/oraInventory", help="Oracle inventory directory location")
     parser.add_argument("--install-type", default="Fusion Middleware Infrastructure", help="INSTALL_TYPE for response file (e.g., 'WebLogic Server' or 'Fusion Middleware Infrastructure')")
 
-    parser.add_argument("--java-home", default="/app/oracle/java", help="Use an explicit JAVA_HOME (expects bin/java under this path; will be created if using --jdk-archive)")
+    parser.add_argument("--java-home", default="/app/temp/java", help="Use an explicit JAVA_HOME (expects bin/java under this path; will be created if using --jdk-archive)")
     parser.add_argument("--jdk-archive", default="/app/software/java/jdk-8u451-linux-x64.tar.gz", help="Path to a JDK .tar.gz archive to provision JAVA_HOME from")
     parser.add_argument("--jdk-version", type=int, default=8, help="JDK major version to install/detect (8, 11, 17) if not using --jdk-archive")
     parser.add_argument("--install-jdk-from-system", action="store_true", help="Install OpenJDK from system package manager if JAVA_HOME is not set")
