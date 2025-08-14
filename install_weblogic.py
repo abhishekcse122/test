@@ -499,8 +499,8 @@ def parse_args(argv=None):
         description="Install JDK (optional), install WebLogic silently from installer JAR, and create a domain via WLST."
     )
     parser.add_argument("--wls-installer", default="/app/software/FMW12214/fmw_12.2.1.4.0_infrastructure.jar", help="Path to WebLogic generic installer JAR")
-    parser.add_argument("--oracle-home", default="/app/oracle/middleware/ORACLE_HOME", help="Target ORACLE_HOME for WebLogic installation")
-    parser.add_argument("--inventory", default="/opt/oraInventory", help="Oracle inventory directory location")
+    parser.add_argument("--oracle-home", default="/app/temp/middleware/ORACLE_HOME", help="Target ORACLE_HOME for WebLogic installation")
+    parser.add_argument("--inventory", default="/app/temp/oraInventory", help="Oracle inventory directory location")
     parser.add_argument("--install-type", default="Fusion Middleware Infrastructure", help="INSTALL_TYPE for response file (e.g., 'WebLogic Server' or 'Fusion Middleware Infrastructure')")
 
     parser.add_argument("--java-home", default="/app/temp/java", help="Use an explicit JAVA_HOME (expects bin/java under this path; will be created if using --jdk-archive)")
@@ -509,8 +509,8 @@ def parse_args(argv=None):
     parser.add_argument("--install-jdk-from-system", action="store_true", help="Install OpenJDK from system package manager if JAVA_HOME is not set")
 
     parser.add_argument("--domain-name", default="c2m_domain", help="Domain name")
-    parser.add_argument("--domain-home", default="/app/oracle/middleware/ORACLE_HOME/user_projects/domains/c2m_domain", help="Domain home directory")
-    parser.add_argument("--wl-home", default="/app/oracle/middleware/ORACLE_HOME/wlserver", help="WL_HOME directory (auto-derived from ORACLE_HOME if not set)")
+    parser.add_argument("--domain-home", default="/app/temp/middleware/ORACLE_HOME/user_projects/domains/c2m_domain", help="Domain home directory")
+    parser.add_argument("--wl-home", default="/app/temp/middleware/ORACLE_HOME/wlserver", help="WL_HOME directory (auto-derived from ORACLE_HOME if not set)")
 
     parser.add_argument("--admin-user", default="weblogic", help="Admin username")
     parser.add_argument("--admin-password", default="Welcome123", help="Admin password")
@@ -529,7 +529,7 @@ def parse_args(argv=None):
     parser.add_argument("--nodemanager-port", type=int, default=5556, help="Node Manager listen port")
     parser.add_argument("--nodemanager-type", default="Plain", choices=["Plain", "SSL"], help="Node Manager type")
 
-    parser.add_argument("--logs-dir", default="/var/log/weblogic-installer", help="Directory to store installer and WLST logs")
+    parser.add_argument("--logs-dir", default="/app/temp/weblogic-installer", help="Directory to store installer and WLST logs")
 
     return parser.parse_args(argv)
 
@@ -542,6 +542,11 @@ def main(argv=None) -> int:
         print(f"Installer JAR not found: {installer_jar}")
         return 1
 
+    # Guard against running as root. The FMW generic installer refuses root.
+    if is_root():
+        print("ERROR: Do not run this installer as root. Please run as a non-root user. All artifacts will be created under /app/temp.")
+        return 1
+
     java_home = ensure_java(
         jdk_version=args.jdk_version,
         prefer_system=args.install_jdk_from_system,
@@ -550,11 +555,11 @@ def main(argv=None) -> int:
     )
 
     desired_oracle_home = Path(args.oracle_home).expanduser()
-    fallback_oracle_home = Path.home() / "Oracle" / "middleware"
+    fallback_oracle_home = Path("/app/temp/middleware/ORACLE_HOME")
     oracle_home = resolve_writable_default(desired_oracle_home, fallback_oracle_home)
 
     desired_inventory = Path(args.inventory).expanduser()
-    fallback_inventory = Path.home() / "oraInventory"
+    fallback_inventory = Path("/app/temp/oraInventory")
     inventory_dir = resolve_writable_default(desired_inventory, fallback_inventory)
 
     logs_dir = Path(args.logs_dir).expanduser()
@@ -574,9 +579,9 @@ def main(argv=None) -> int:
         wl_home = Path(args.wl_home).expanduser() if args.wl_home else (oracle_home / "wlserver")
 
         domain_home = Path(args.domain_home).expanduser()
-        # If domain_home under default /opt or /app, may not be writable; choose fallback
+        # Ensure domain home remains under /app/temp
         desired_domain_home = domain_home
-        fallback_domain_home = Path.home() / "Oracle" / "user_projects" / "domains" / args.domain_name
+        fallback_domain_home = Path("/app/temp/middleware/ORACLE_HOME/user_projects/domains") / args.domain_name
         domain_home = resolve_writable_default(desired_domain_home, fallback_domain_home)
 
         create_domain_via_wlst(
