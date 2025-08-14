@@ -321,9 +321,9 @@ def generate_wlst_script(
     java_home: Path,
 ) -> str:
     mode = "prod" if production_mode else "dev"
-    # WLST offline script
+    # WLST offline script (Jython 2.x compatible)
     return dedent(
-        f"""
+        """
         import os
         oracle_home = r"{oracle_home}"
         domain_home = r"{domain_home}"
@@ -370,9 +370,9 @@ def generate_wlst_script(
         
         # Create Node Manager and Machine
         create(node_manager_name, 'Machine')
-        cd(f'Machines/{{node_manager_name}}')
+        cd('Machines/' + node_manager_name)
         create(node_manager_name, 'NodeManager')
-        cd(f'NodeManager/{{node_manager_name}}')
+        cd('NodeManager/' + node_manager_name)
         set('ListenAddress', node_manager_listen_address)
         set('ListenPort', node_manager_listen_port)
         set('NMType', node_manager_type)
@@ -380,19 +380,19 @@ def generate_wlst_script(
         
         # Create Managed Server
         create(managed_server_name, 'Server')
-        cd(f'Servers/{{managed_server_name}}')
+        cd('Servers/' + managed_server_name)
         set('ListenAddress', managed_listen_address)
         set('ListenPort', managed_listen_port)
         try:
             create(managed_server_name, 'SSL')
         except:
             pass
-        cd(f'SSL/{{managed_server_name}}')
+        cd('SSL/' + managed_server_name)
         cmo.setEnabled(True)
         set('ListenPort', managed_ssl_port)
-        cd(f'/Servers/{{managed_server_name}}')
+        cd('/Servers/' + managed_server_name)
         try:
-            mbean = getMBean(f'/Machines/{{node_manager_name}}')
+            mbean = getMBean('/Machines/' + node_manager_name)
             if mbean is not None:
                 cmo.setMachine(mbean)
         except:
@@ -412,12 +412,34 @@ def generate_wlst_script(
         security_dir = os.path.join(domain_home, 'servers', 'AdminServer', 'security')
         if not os.path.isdir(security_dir):
             os.makedirs(security_dir)
-        with open(os.path.join(security_dir, 'boot.properties'), 'w') as f:
+        f = open(os.path.join(security_dir, 'boot.properties'), 'w')
+        try:
             f.write('username=' + admin_user + '\n')
             f.write('password=' + admin_password + '\n')
+        finally:
+            f.close()
         
         exit()
-        """
+        """.format(
+            oracle_home=oracle_home,
+            domain_home=domain_home,
+            domain_name=domain_name,
+            admin_user=admin_user,
+            admin_password=admin_password,
+            listen_address=listen_address,
+            listen_port=listen_port,
+            admin_ssl_port=admin_ssl_port,
+            managed_server_name=managed_server_name,
+            managed_listen_address=managed_listen_address,
+            managed_listen_port=managed_listen_port,
+            managed_ssl_port=managed_ssl_port,
+            node_manager_name=node_manager_name,
+            node_manager_listen_address=node_manager_listen_address,
+            node_manager_listen_port=node_manager_listen_port,
+            node_manager_type=node_manager_type,
+            java_home=java_home,
+            mode=mode,
+        )
     ).strip() + "\n"
 
 
