@@ -9,6 +9,7 @@ from pathlib import Path
 from textwrap import dedent
 import grp
 import tarfile
+from typing import Optional
 
 
 class CommandError(Exception):
@@ -143,7 +144,7 @@ def extract_jdk_archive(archive_path: Path, destination_java_home: Path) -> str:
     return str(destination_java_home)
 
 
-def ensure_java(jdk_version: int, prefer_system: bool, preferred_java_home: str | None, jdk_archive_path: str | None) -> str:
+def ensure_java(jdk_version: int, prefer_system: bool, preferred_java_home: Optional[str], jdk_archive_path: Optional[str]) -> str:
     # If caller provided a fixed JAVA_HOME, honor it first; extract archive there if needed
     if preferred_java_home:
         candidate = Path(preferred_java_home)
